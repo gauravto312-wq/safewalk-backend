@@ -1,0 +1,34 @@
+# Compiled class files & build directories
+target/
+*.class
+*.jar
+*.war
+BOOT-INF/
+
+# IDE & Editor files
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Environment & Credentials
+.env
+*.env.local
+.env.*.local
+*firebase*.json
+serviceAccountKey.json
+firebase-credentials.json
+
+# Local Uploads & User Documents
+uploads/
+
+# Local Test Scripts, Run Logs & Test Data Dumps
+scratch/
+*.log
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
