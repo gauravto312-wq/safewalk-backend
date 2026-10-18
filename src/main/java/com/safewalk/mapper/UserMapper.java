@@ -23,6 +23,7 @@ public class UserMapper {
         return User.builder()
                 .name(request.getName().trim())
                 .mobileNumber(request.getMobileNumber().trim())
+                .email(request.getEmail() != null && !request.getEmail().trim().isEmpty() ? request.getEmail().trim().toLowerCase() : null)
                 .password(request.getPassword())
                 .emergencyPassword(request.getEmergencyPassword() != null ? request.getEmergencyPassword().trim() : null)
                 .role(assignedRole)

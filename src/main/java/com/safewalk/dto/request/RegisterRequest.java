@@ -1,10 +1,15 @@
 package com.safewalk.dto.request;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class RegisterRequest {
+
+    @Email(message = "Invalid email format")
+    @Size(max = 100, message = "Email cannot exceed 100 characters")
+    private String email;
 
     @NotBlank(message = "Name is required")
     @Size(min = 2, max = 100, message = "Name must be between 2 and 100 characters")
@@ -51,6 +56,14 @@ public class RegisterRequest {
         this.badgeNumber = badgeNumber;
         this.department = department;
         this.policeStation = department;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public String getName() {
@@ -130,6 +143,7 @@ public class RegisterRequest {
     public static class RegisterRequestBuilder {
         private String name;
         private String mobileNumber;
+        private String email;
         private String password;
         private String emergencyPassword;
         private com.safewalk.entity.Role role;
@@ -144,6 +158,11 @@ public class RegisterRequest {
 
         public RegisterRequestBuilder mobileNumber(String mobileNumber) {
             this.mobileNumber = mobileNumber;
+            return this;
+        }
+
+        public RegisterRequestBuilder email(String email) {
+            this.email = email;
             return this;
         }
 
@@ -185,7 +204,9 @@ public class RegisterRequest {
 
         public RegisterRequest build() {
             String resolvedDept = department != null ? department : policeStation;
-            return new RegisterRequest(name, mobileNumber, password, emergencyPassword, role, badgeNumber, resolvedDept);
+            RegisterRequest req = new RegisterRequest(name, mobileNumber, password, emergencyPassword, role, badgeNumber, resolvedDept);
+            req.setEmail(email);
+            return req;
         }
     }
 }

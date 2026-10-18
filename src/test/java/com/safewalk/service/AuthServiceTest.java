@@ -110,6 +110,61 @@ class AuthServiceTest {
     }
 
     @Test
+    void register_WithValidEmail_PersistsNormalizedEmail() {
+        RegisterRequest requestWithEmail = RegisterRequest.builder()
+                .name("Rohan Mehta")
+                .mobileNumber("+919876543210")
+                .email("  Rohan.Mehta@Example.Com  ")
+                .password("plainPassword123")
+                .emergencyPassword("sosPassword123")
+                .build();
+
+        User userWithEmail = User.builder()
+                .id(101L)
+                .name("Rohan Mehta")
+                .mobileNumber("+919876543210")
+                .email("rohan.mehta@example.com")
+                .password(passwordEncoder.encode("plainPassword123"))
+                .role(Role.USER)
+                .accountStatus(AccountStatus.ACTIVE)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        when(userRepository.existsByMobileNumber(requestWithEmail.getMobileNumber())).thenReturn(false);
+        when(userRepository.existsByEmail("rohan.mehta@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(userWithEmail);
+        when(jwtTokenProvider.generateToken(any(User.class))).thenReturn("mocked.jwt.token");
+
+        AuthResponse response = authService.register(requestWithEmail);
+
+        assertNotNull(response);
+        assertNotNull(response.getUser());
+        assertEquals("rohan.mehta@example.com", response.getUser().getEmail());
+
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(userCaptor.capture());
+        User savedEntity = userCaptor.getValue();
+        assertEquals("rohan.mehta@example.com", savedEntity.getEmail());
+    }
+
+    @Test
+    void register_DuplicateEmail_ThrowsException() {
+        RegisterRequest requestWithEmail = RegisterRequest.builder()
+                .name("Rohan Mehta")
+                .mobileNumber("+919876543210")
+                .email("Duplicate@Example.Com")
+                .password("plainPassword123")
+                .build();
+
+        when(userRepository.existsByMobileNumber(requestWithEmail.getMobileNumber())).thenReturn(false);
+        when(userRepository.existsByEmail("duplicate@example.com")).thenReturn(true);
+
+        assertThrows(DuplicateResourceException.class, () -> authService.register(requestWithEmail));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
     void login_Success_ReturnsJwtToken() {
         LoginRequest loginRequest = LoginRequest.builder()
                 .mobileNumber("+919876543210")

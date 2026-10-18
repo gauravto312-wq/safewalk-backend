@@ -55,6 +55,15 @@ public class AuthServiceImpl implements AuthService {
             throw new DuplicateResourceException("Mobile number '" + cleanMobileNumber + "' is already registered with a SafeWalk account.");
         }
 
+        String cleanEmail = null;
+        if (request.getEmail() != null && !request.getEmail().trim().isEmpty()) {
+            cleanEmail = request.getEmail().trim().toLowerCase();
+            if (userRepository.existsByEmail(cleanEmail)) {
+                log.warn("Registration failed. Email already exists: {}", cleanEmail);
+                throw new DuplicateResourceException("Email '" + cleanEmail + "' is already registered with a SafeWalk account.");
+            }
+        }
+
         String encodedPassword = passwordEncoder.encode(request.getPassword());
         String encodedEmergencyPassword = request.getEmergencyPassword() != null && !request.getEmergencyPassword().trim().isEmpty()
                 ? passwordEncoder.encode(request.getEmergencyPassword().trim())
@@ -80,6 +89,7 @@ public class AuthServiceImpl implements AuthService {
         User user = User.builder()
                 .name(request.getName().trim())
                 .mobileNumber(cleanMobileNumber)
+                .email(cleanEmail)
                 .password(encodedPassword)
                 .emergencyPassword(encodedEmergencyPassword)
                 .role(userRole)

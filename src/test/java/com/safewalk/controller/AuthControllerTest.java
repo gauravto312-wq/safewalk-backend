@@ -106,6 +106,77 @@ class AuthControllerTest {
     }
 
     @Test
+    void register_WithValidEmail_ReturnsCreated() throws Exception {
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Ananya Roy")
+                .mobileNumber("+919876543210")
+                .email("ananya.roy@example.com")
+                .password("password123")
+                .build();
+
+        UserResponse userResponse = UserResponse.builder()
+                .id(1L)
+                .name("Ananya Roy")
+                .mobileNumber("+919876543210")
+                .email("ananya.roy@example.com")
+                .role(Role.USER)
+                .accountStatus(AccountStatus.ACTIVE)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        AuthResponse authResponse = AuthResponse.builder()
+                .token("valid.jwt.token")
+                .tokenType("Bearer")
+                .user(userResponse)
+                .build();
+
+        when(authService.register(any(RegisterRequest.class))).thenReturn(authResponse);
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.user.email").value("ananya.roy@example.com"));
+    }
+
+    @Test
+    void register_InvalidEmail_ReturnsBadRequest() throws Exception {
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Ananya Roy")
+                .mobileNumber("+919876543210")
+                .email("not-an-email")
+                .password("password123")
+                .build();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void register_DuplicateEmail_ReturnsConflict() throws Exception {
+        RegisterRequest request = RegisterRequest.builder()
+                .name("Ananya Roy")
+                .mobileNumber("+919876543210")
+                .email("duplicate@example.com")
+                .password("password123")
+                .build();
+
+        when(authService.register(any(RegisterRequest.class)))
+                .thenThrow(new DuplicateResourceException("Email 'duplicate@example.com' is already registered with a SafeWalk account."));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
     void login_ValidCredentials_ReturnsToken() throws Exception {
         LoginRequest request = LoginRequest.builder()
                 .mobileNumber("+919876543210")
