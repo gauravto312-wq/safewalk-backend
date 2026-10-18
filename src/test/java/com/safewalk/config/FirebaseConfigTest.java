@@ -8,6 +8,11 @@ import org.springframework.mock.env.MockEnvironment;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -195,5 +200,107 @@ class FirebaseConfigTest {
 
     private void devEnvWithProfile(MockEnvironment env, String profile) {
         env.setActiveProfiles(profile);
+    }
+
+    private String generateDummyServiceAccountJson() {
+        try {
+            KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+            kpg.initialize(2048);
+            KeyPair kp = kpg.generateKeyPair();
+            String privateKeyPem = "-----BEGIN PRIVATE KEY-----\n" +
+                    Base64.getMimeEncoder(64, new byte[]{'\n'}).encodeToString(kp.getPrivate().getEncoded()) +
+                    "\n-----END PRIVATE KEY-----\n";
+
+            return "{\n" +
+                    "  \"type\": \"service_account\",\n" +
+                    "  \"project_id\": \"test-safewalk-project\",\n" +
+                    "  \"private_key_id\": \"dummy-key-id\",\n" +
+                    "  \"private_key\": \"" + privateKeyPem.replace("\n", "\\n") + "\",\n" +
+                    "  \"client_email\": \"firebase-adminsdk@test-safewalk-project.iam.gserviceaccount.com\",\n" +
+                    "  \"client_id\": \"1234567890\",\n" +
+                    "  \"auth_uri\": \"https://accounts.google.com/o/oauth2/auth\",\n" +
+                    "  \"token_uri\": \"https://oauth2.googleapis.com/token\"\n" +
+                    "}";
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("Failed to generate test RSA key", e);
+        }
+    }
+
+    @Test
+    void testInitializeWithCredentialsJson_InMemorySuccess() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("FIREBASE_CREDENTIALS_JSON", generateDummyServiceAccountJson());
+
+        FirebaseConfig config = new FirebaseConfig(env);
+        assertDoesNotThrow(config::initializeFirebase);
+
+        assertFalse(FirebaseApp.getApps().isEmpty(), "FirebaseApp should be initialized from in-memory JSON");
+        assertEquals("test-safewalk-project", FirebaseApp.getInstance().getOptions().getProjectId());
+
+        // Verify duplicate initialization safety
+        assertDoesNotThrow(config::initializeFirebase, "Subsequent initialization should safely reuse existing app");
+        assertEquals(1, FirebaseApp.getApps().size());
+    }
+
+    @Test
+    void testInitializeWithCredentialsFile_ExistingFileSuccess() throws IOException {
+        MockEnvironment env = new MockEnvironment();
+        File tempFile = File.createTempFile("test-firebase-creds", ".json");
+        tempFile.deleteOnExit();
+        Files.writeString(tempFile.toPath(), generateDummyServiceAccountJson());
+
+        env.setProperty("GOOGLE_APPLICATION_CREDENTIALS", tempFile.getAbsolutePath());
+
+        FirebaseConfig config = new FirebaseConfig(env);
+        assertDoesNotThrow(config::initializeFirebase);
+
+        assertFalse(FirebaseApp.getApps().isEmpty(), "FirebaseApp should be initialized from credentials file");
+        assertEquals("test-safewalk-project", FirebaseApp.getInstance().getOptions().getProjectId());
+    }
+
+    @Test
+    void testFallbackToCredentialsJson_WhenCredentialsPathPointsToNonExistentFile() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("GOOGLE_APPLICATION_CREDENTIALS", "/non/existent/firebase-service-account.json");
+        env.setProperty("FIREBASE_CREDENTIALS_JSON", generateDummyServiceAccountJson());
+
+        FirebaseConfig config = new FirebaseConfig(env);
+        assertDoesNotThrow(config::initializeFirebase);
+
+        assertFalse(FirebaseApp.getApps().isEmpty(), "Should fall back to FIREBASE_CREDENTIALS_JSON when file does not exist");
+        assertEquals("test-safewalk-project", FirebaseApp.getInstance().getOptions().getProjectId());
+    }
+
+    @Test
+    void testCredentialsJson_WhenAbsent_PreservesDevFallback() {
+        MockEnvironment devEnv = new MockEnvironment();
+        devEnv.setActiveProfiles("dev");
+
+        FirebaseConfig config = new FirebaseConfig(devEnv);
+        assertDoesNotThrow(config::initializeFirebase);
+        assertTrue(FirebaseApp.getApps().isEmpty(), "Should remain in simulation mode when JSON is absent in DEV");
+    }
+
+    @Test
+    void testCredentialsJson_MalformedInProduction_ThrowsSanitizedException() {
+        MockEnvironment prodEnv = new MockEnvironment();
+        prodEnv.setActiveProfiles("prod");
+        prodEnv.setProperty("FIREBASE_CREDENTIALS_JSON", "{invalid-malformed-json-payload}");
+
+        FirebaseConfig config = new FirebaseConfig(prodEnv);
+        IllegalStateException exception = assertThrows(IllegalStateException.class, config::initializeFirebase);
+        assertTrue(exception.getMessage().contains("FIREBASE_CREDENTIALS_JSON"), "Exception should mention FIREBASE_CREDENTIALS_JSON");
+        assertFalse(exception.getMessage().contains("{invalid-malformed-json-payload}"), "Exception message should never leak payload content");
+    }
+
+    @Test
+    void testCredentialsJson_MalformedInDev_DoesNotThrow() {
+        MockEnvironment devEnv = new MockEnvironment();
+        devEnv.setActiveProfiles("dev");
+        devEnv.setProperty("FIREBASE_CREDENTIALS_JSON", "{invalid-malformed-json-payload}");
+
+        FirebaseConfig config = new FirebaseConfig(devEnv);
+        assertDoesNotThrow(config::initializeFirebase);
+        assertTrue(FirebaseApp.getApps().isEmpty(), "Should remain in simulation mode on malformed JSON in DEV");
     }
 }

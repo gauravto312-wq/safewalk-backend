@@ -11,10 +11,12 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 @Configuration
 public class FirebaseConfig {
@@ -41,58 +43,66 @@ public class FirebaseConfig {
 
         boolean isProd = isProductionEnvironment();
         String googleCredentialsEnv = resolveCredentialsPath();
+        String credentialsJson = resolveCredentialsJson();
 
-        if (googleCredentialsEnv == null || googleCredentialsEnv.trim().isEmpty()) {
-            if (isProd) {
-                log.info("Production environment: GOOGLE_APPLICATION_CREDENTIALS not explicitly configured. Attempting Application Default Credentials (ADC)...");
-                try {
-                    GoogleCredentials credentials = GoogleCredentials.getApplicationDefault();
-                    initializeWithCredentials(credentials);
-                    return;
+        GoogleCredentials credentials = null;
+
+        // Priority 1: Existing local/file-based configuration (valid file on disk)
+        if (googleCredentialsEnv != null && !googleCredentialsEnv.trim().isEmpty()) {
+            File credsFile = new File(googleCredentialsEnv.trim());
+            if (credsFile.exists() && credsFile.isFile()) {
+                log.info("Loading Firebase credentials from file path: {}", credsFile.getAbsolutePath());
+                try (InputStream is = new FileInputStream(credsFile)) {
+                    credentials = GoogleCredentials.fromStream(is);
                 } catch (IOException e) {
-                    String errorMsg = "FCM Configuration Error in PRODUCTION: Firebase Admin SDK credentials are required but unavailable (GOOGLE_APPLICATION_CREDENTIALS is not set and Application Default Credentials failed): " + e.getMessage();
+                    String errorMsg = "FCM Configuration Error: Failed to read credentials from file '" + credsFile.getAbsolutePath() + "': " + e.getMessage();
                     log.error(errorMsg);
-                    throw new IllegalStateException(errorMsg, e);
+                    if (isProd) {
+                        throw new IllegalStateException(errorMsg, e);
+                    } else {
+                        log.warn("Skipping Firebase Admin SDK initialization due to read error (running in DEV/Simulation mode): {}", e.getMessage());
+                        return;
+                    }
                 }
-            } else {
-                log.warn("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set. Skipping Firebase Admin SDK initialization (running in DEV/Simulation mode).");
-                return;
+            } else if (credentialsJson == null || credentialsJson.trim().isEmpty()) {
+                log.warn("GOOGLE_APPLICATION_CREDENTIALS specified ('{}') but file does not exist or is a directory.", googleCredentialsEnv);
             }
         }
 
-        File credsFile = new File(googleCredentialsEnv.trim());
-        GoogleCredentials credentials;
-
-        if (credsFile.exists() && credsFile.isFile()) {
-            log.info("Loading Firebase credentials from file path: {}", credsFile.getAbsolutePath());
-            try (InputStream is = new FileInputStream(credsFile)) {
+        // Priority 2: Railway environment variable (FIREBASE_CREDENTIALS_JSON in-memory)
+        if (credentials == null && credentialsJson != null && !credentialsJson.trim().isEmpty()) {
+            log.info("Loading Firebase credentials from FIREBASE_CREDENTIALS_JSON in-memory variable.");
+            try (InputStream is = new ByteArrayInputStream(credentialsJson.trim().getBytes(StandardCharsets.UTF_8))) {
                 credentials = GoogleCredentials.fromStream(is);
-            } catch (IOException e) {
-                String errorMsg = "FCM Configuration Error: Failed to read credentials from file '" + credsFile.getAbsolutePath() + "': " + e.getMessage();
+            } catch (Exception e) {
+                String errorMsg = "FCM Configuration Error: Failed to parse credentials from FIREBASE_CREDENTIALS_JSON environment variable (malformed or invalid JSON).";
                 log.error(errorMsg);
                 if (isProd) {
                     throw new IllegalStateException(errorMsg, e);
                 } else {
-                    log.warn("Skipping Firebase Admin SDK initialization due to read error (running in DEV/Simulation mode): {}", e.getMessage());
+                    log.warn("Skipping Firebase Admin SDK initialization due to invalid JSON (running in DEV/Simulation mode).");
                     return;
                 }
             }
-        } else {
+        }
+
+        // Priority 3 & 4: Application Default Credentials (ADC) or dev simulation fallback
+        if (credentials == null) {
             if (isProd) {
-                log.warn("Production environment: Credentials file path '{}' does not exist or is a directory. Attempting Application Default Credentials fallback.", googleCredentialsEnv);
+                log.info("Production environment: No valid credentials file or JSON provided. Attempting Application Default Credentials (ADC)...");
                 try {
                     credentials = GoogleCredentials.getApplicationDefault();
                 } catch (IOException e) {
-                    String errorMsg = "FCM Configuration Error in PRODUCTION: Firebase credentials file not found at '" + googleCredentialsEnv + "' and Application Default Credentials unavailable: " + e.getMessage();
+                    String errorMsg = "FCM Configuration Error in PRODUCTION: Firebase Admin SDK credentials are required but unavailable (neither valid file nor valid FIREBASE_CREDENTIALS_JSON provided, and Application Default Credentials failed): " + e.getMessage();
                     log.error(errorMsg);
                     throw new IllegalStateException(errorMsg, e);
                 }
             } else {
-                log.warn("GOOGLE_APPLICATION_CREDENTIALS specified ('{}') but file does not exist or is a directory. Attempting Application Default Credentials fallback.", googleCredentialsEnv);
+                log.warn("Firebase credentials not configured (neither valid file nor FIREBASE_CREDENTIALS_JSON provided). Attempting Application Default Credentials fallback.");
                 try {
                     credentials = GoogleCredentials.getApplicationDefault();
                 } catch (IOException e) {
-                    log.warn("Application Default Credentials not available ({}). Skipping Firebase Admin SDK initialization (running in DEV/Simulation mode).", e.getMessage());
+                    log.warn("Application Default Credentials not available. Skipping Firebase Admin SDK initialization (running in DEV/Simulation mode).");
                     return;
                 }
             }
@@ -131,6 +141,14 @@ public class FirebaseConfig {
             path = resolveConfigValue("safewalk.firebase.credentials-path");
         }
         return path != null && !path.trim().isEmpty() ? path.trim() : null;
+    }
+
+    private String resolveCredentialsJson() {
+        String json = resolveConfigValue("FIREBASE_CREDENTIALS_JSON");
+        if (json == null || json.trim().isEmpty()) {
+            json = resolveConfigValue("safewalk.firebase.credentials-json");
+        }
+        return json != null && !json.trim().isEmpty() ? json.trim() : null;
     }
 
     public boolean isProductionEnvironment() {
