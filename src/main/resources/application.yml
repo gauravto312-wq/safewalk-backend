@@ -2,9 +2,9 @@ spring:
   application:
     name: safewalk-backend
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:safewalk_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:}
+    url: jdbc:mysql://${DB_HOST:${MYSQLHOST:localhost}}:${DB_PORT:${MYSQLPORT:3306}}/${DB_NAME:${MYSQLDATABASE:safewalk_db}}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME:${MYSQLUSER:root}}
+    password: ${DB_PASSWORD:${MYSQLPASSWORD:}}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -70,8 +70,8 @@ safewalk:
   admin:
     bootstrap:
       enabled: ${ADMIN_BOOTSTRAP_ENABLED:false}
-      mobile-number: ${ADMIN_BOOTSTRAP_MOBILE:}
-      email: ${ADMIN_BOOTSTRAP_EMAIL:}
+      mobile-number: ${ADMIN_BOOTSTRAP_MOBILE:+919999999999}
+      email: ${ADMIN_BOOTSTRAP_EMAIL:admin@safewalk.in}
       password: ${ADMIN_BOOTSTRAP_PASSWORD:}
       name: ${ADMIN_BOOTSTRAP_NAME:System Administrator}
   maps:

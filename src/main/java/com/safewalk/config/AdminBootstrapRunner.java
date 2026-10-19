@@ -59,10 +59,10 @@ public class AdminBootstrapRunner implements CommandLineRunner {
             PasswordEncoder passwordEncoder,
             AuditLogRepository auditLogRepository,
             @Value("${safewalk.admin.bootstrap.enabled:${ADMIN_BOOTSTRAP_ENABLED:false}}") boolean enabled,
-            @Value("${safewalk.admin.bootstrap.mobile-number:${ADMIN_BOOTSTRAP_MOBILE:}}") String adminMobile,
+            @Value("${safewalk.admin.bootstrap.mobile-number:${ADMIN_BOOTSTRAP_MOBILE:+919999999999}}") String adminMobile,
             @Value("${safewalk.admin.bootstrap.password:${ADMIN_BOOTSTRAP_PASSWORD:}}") String adminPassword,
             @Value("${safewalk.admin.bootstrap.name:${ADMIN_BOOTSTRAP_NAME:System Administrator}}") String adminName,
-            @Value("${safewalk.admin.bootstrap.email:${ADMIN_BOOTSTRAP_EMAIL:}}") String adminEmail) {
+            @Value("${safewalk.admin.bootstrap.email:${ADMIN_BOOTSTRAP_EMAIL:admin@safewalk.in}}") String adminEmail) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditLogRepository = auditLogRepository;
@@ -80,12 +80,12 @@ public class AdminBootstrapRunner implements CommandLineRunner {
             return;
         }
 
-        if (!StringUtils.hasText(adminMobile) || !StringUtils.hasText(adminPassword)) {
-            log.warn("Secure admin bootstrap is enabled, but admin mobile or password configuration is missing. Bootstrap aborted safely.");
+        if (!StringUtils.hasText(adminPassword)) {
+            log.warn("Secure admin bootstrap is enabled, but admin password configuration is missing. Bootstrap aborted safely.");
             return;
         }
 
-        String cleanMobile = adminMobile.trim();
+        String cleanMobile = StringUtils.hasText(adminMobile) ? adminMobile.trim() : "+919999999999";
         String cleanEmail = StringUtils.hasText(adminEmail) ? adminEmail.trim().toLowerCase() : null;
 
         if (cleanMobile.length() < 8) {
@@ -98,6 +98,13 @@ public class AdminBootstrapRunner implements CommandLineRunner {
             return;
         }
 
+        // Idempotency Check 1: Do not create duplicate administrator if email is already registered
+        if (cleanEmail != null && userRepository.existsByEmail(cleanEmail)) {
+            log.info("Administrator account already exists for email [{}]. Bootstrap creation skipped (idempotent).", cleanEmail);
+            return;
+        }
+
+        // Idempotency Check 2: Do not create duplicate administrator if mobile is already registered
         if (userRepository.existsByMobileNumber(cleanMobile)) {
             log.info("Administrator account already exists for mobile [{}]. Updating email mapping if provided.", maskMobile(cleanMobile));
             if (cleanEmail != null) {
