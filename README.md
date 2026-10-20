@@ -24,7 +24,7 @@ SafeWalk is a distributed, event-driven real-time emergency safety and community
 | **Android Direct APK** | Installable Android Package | [Download SafeWalk-v1.0.0.apk](https://github.com/gauravto312-wq/SafeWalk-Android/releases/download/v1.0.0/SafeWalk-v1.0.0.apk) |
 | **Live Platform Demo** | End-to-End Walkthrough Video | [Watch Demo on YouTube](https://youtu.be/91b0QSqxUSY) |
 | **Backend Repository** | Core Spring Boot Source Code | [safewalk-backend (GitHub)](https://github.com/gauravto312-wq/safewalk-backend) |
-| **Frontend Web Client** | Web Dashboard Repository | `[Frontend repository URL — to be added]` |
+| **Frontend Web Client** | Web Dashboard Repository | [SafeWalk-Frontend (GitHub)](https://github.com/gauravto312-wq/safewalk-frontend) |
 | **Deployed Web Client** | Beta Web Dashboard (Vercel) | [safewalk-frontend-beta.vercel.app](https://safewalk-frontend-beta.vercel.app) |
 | **Production API Base** | Cloud Deployment Base URL (Railway) | [safewalk-backend-production-e3a1.up.railway.app](https://safewalk-backend-production-e3a1.up.railway.app) |
 
@@ -255,7 +255,7 @@ sequenceDiagram
 - **Operator Admin Bootstrap Runner**: Self-contained [`AdminBootstrapRunner`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) executing on application startup. Validates environment configurations, checks email/mobile uniqueness, and provisions initial administrator accounts idempotently without hardcoded secrets.
 - **High-Performance Geospatial Engine**: Real-time user coordinates are indexed in Redis GEO sorted sets (`safewalk:users:locations`). Queries nearby qualified responders within configurable radiuses (default 2.0 km) with coordinate freshness checks (5-minute TTL).
 - **External Maps & Haversine Distance Engine**: [`MapsServiceImpl`](src/main/java/com/safewalk/service/impl/MapsServiceImpl.java) integrates with Google Maps Distance Matrix and Geocoding APIs when configured, falling back automatically to the mathematical **Haversine formula** and reverse coordinate mapping when keys are omitted.
-- **Asynchronous Event Pipeline**: Emergency dispatches are offloaded to an Apache Kafka KRaft cluster via topic `sos.events`, guaranteeing database transaction isolation and sub-100ms response times for emergency creation calls.
+- **Asynchronous Event Pipeline**: Emergency dispatches are offloaded to an Apache Kafka cluster via topic `sos.events`, decoupling geospatial candidate discovery and push notification delivery from the HTTP request cycle to ensure fast, non-blocking response times for emergency creation calls.
 - **Live WebSocket STOMP Messaging**: Intercepted by [`WebSocketAuthInterceptor`](src/main/java/com/safewalk/security/WebSocketAuthInterceptor.java). Dispatches incident broadcasts to `/topic/sos/{id}` and targeted responder notices to `/user/queue/messages`.
 - **Hybrid Firebase Cloud Messaging**: [`FirebaseConfig`](src/main/java/com/safewalk/config/FirebaseConfig.java) supports two credential injection modes:
   1. Standard file path mount (`GOOGLE_APPLICATION_CREDENTIALS`).
@@ -636,13 +636,14 @@ In error scenarios, the envelope maps to `ErrorResponse`:
 ### 6.9 Representative API Payload Contracts
 
 #### User Registration (`POST /api/v1/auth/register`)
+> **Note**: Credential values shown below (`YOUR_SECURE_PASSWORD`, `YOUR_DURESS_PASSWORD`) are illustrative placeholders. Always supply strong, unique passwords in client requests.
 ```json
 {
   "name": "Jane Doe",
   "mobileNumber": "+919876543210",
   "email": "jane.doe@example.com",
-  "password": "SecurePassword#2026",
-  "emergencyPassword": "DuressPassword#2026",
+  "password": "YOUR_SECURE_PASSWORD",
+  "emergencyPassword": "YOUR_DURESS_PASSWORD",
   "role": "USER"
 }
 ```
@@ -651,7 +652,7 @@ In error scenarios, the envelope maps to `ErrorResponse`:
 ```json
 {
   "email": "jane.doe@example.com",
-  "password": "SecurePassword#2026"
+  "password": "YOUR_SECURE_PASSWORD"
 }
 ```
 *Successful Response (`200 OK`):*
@@ -799,7 +800,7 @@ stompClient.topic("/topic/sos/$activeEmergencyId/location").subscribe { message 
 
 ## 9. Frontend Web Integration Guide
 
-- **Frontend Repository**: `[Frontend repository URL — to be added]`
+- **Frontend Repository**: [https://github.com/gauravto312-wq/safewalk-frontend](https://github.com/gauravto312-wq/safewalk-frontend)
 - **Deployed Web Dashboard**: [https://safewalk-frontend-beta.vercel.app](https://safewalk-frontend-beta.vercel.app)
 - **Configured Allowed Origins**:
   `https://safewalk-frontend-beta.vercel.app`, `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:3000`, `http://localhost:8080`
@@ -882,7 +883,7 @@ mvn clean spring-boot:run
 | `DB_HOST` | MySQL hostname | Yes | `localhost` (Docker: `mysql`) | [`application.yml`](src/main/resources/application.yml) |
 | `DB_PORT` | MySQL connection port | No | `3306` | [`application.yml`](src/main/resources/application.yml) |
 | `DB_NAME` | MySQL database name | No | `safewalk_db` (Railway: `railway`) | [`application.yml`](src/main/resources/application.yml) |
-| `DB_USERNAME` | MySQL database user | Yes | `root` | [`application.yml`](src/main/resources/application.yml) |
+| `DB_USERNAME` | MySQL database user (local dev default: `root`; use dedicated least-privilege user in production) | Yes | `root` (local dev only) | [`application.yml`](src/main/resources/application.yml) |
 | `DB_PASSWORD` | MySQL database user password | Yes | *(none)* | [`application.yml`](src/main/resources/application.yml) |
 | `MYSQLHOST` / `MYSQLPORT` | Native Railway MySQL fallbacks | No | *(falls back to DB_HOST/PORT)*| [`application.yml`](src/main/resources/application.yml) |
 | `REDIS_HOST` | Redis cache hostname | Yes | `localhost` (Docker: `redis`) | [`application.yml`](src/main/resources/application.yml) |
@@ -892,19 +893,22 @@ mvn clean spring-boot:run
 | `KAFKA_SECURITY_PROTOCOL` | Kafka protocol (`PLAINTEXT` or `SASL_SSL`) | Cloud | `PLAINTEXT` | [`application.yml`](src/main/resources/application.yml) |
 | `KAFKA_SASL_MECHANISM` | SASL auth mechanism | Cloud | `SCRAM-SHA-256` | [`application.yml`](src/main/resources/application.yml) |
 | `KAFKA_SASL_JAAS_CONFIG` | SASL JAAS authentication config string | Cloud | *(empty)* | [`application.yml`](src/main/resources/application.yml) |
-| `KAFKA_SSL_TRUSTSTORE_CERTIFICATES` | Raw PEM CA certificate string for Aiven/cloud | Cloud | *(empty)* | [`application.yml`](src/main/resources/application.yml) |
+| `KAFKA_SSL_TRUSTSTORE_CERTIFICATES` | Raw PEM CA certificate string for cloud Kafka | Cloud | *(empty)* | [`application.yml`](src/main/resources/application.yml) |
 | `JWT_SECRET` | 256-bit HMAC secret signing key | **Critical** | *(must be $\ge 32$ chars in prod)* | [`application.yml`](src/main/resources/application.yml) |
 | `JWT_EXPIRATION_MS` | JWT validity window in milliseconds | No | `86400000` (24 hours) | [`application.yml`](src/main/resources/application.yml) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Local path to Firebase service-account JSON | Local/FCM | `/app/firebase-service-account.json` | [`FirebaseConfig.java`](src/main/java/com/safewalk/config/FirebaseConfig.java) |
 | `FIREBASE_CREDENTIALS_JSON` | Raw Firebase JSON string for cloud hosting | Cloud/FCM | *(empty)* | [`FirebaseConfig.java`](src/main/java/com/safewalk/config/FirebaseConfig.java) |
 | `MAPS_API_KEY` | Google Maps API key (Distance/Geocoding) | Optional | *(uses Haversine if omitted)* | [`application.yml`](src/main/resources/application.yml) |
 | `CORS_ALLOWED_ORIGINS` | Comma-delimited list of permitted CORS web origins | No | Vercel beta + localhost defaults | [`CorsConfig.java`](src/main/java/com/safewalk/config/CorsConfig.java) |
-| `ADMIN_BOOTSTRAP_ENABLED` | Enables one-time administrator account creation | Optional | `false` | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
-| `ADMIN_BOOTSTRAP_EMAIL` | Bootstrap administrator login email | Optional | `admin@safewalk.in` | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Bootstrap administrator initial password | Optional | *(empty)* | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
-| `ADMIN_BOOTSTRAP_MOBILE` | Bootstrap administrator mobile number | Optional | `+919999999999` | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
+| `ADMIN_BOOTSTRAP_ENABLED` | Enables one-time administrator account creation (disabled by default) | Optional | `false` | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
+| `ADMIN_BOOTSTRAP_EMAIL` | Bootstrap administrator login email (operator-configured placeholder) | Optional | `admin@example.com` | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Bootstrap administrator initial password (must be $\ge 8$ chars) | Optional | *(empty; bootstrap aborts if not set)* | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
+| `ADMIN_BOOTSTRAP_MOBILE` | Bootstrap administrator mobile number (operator-configured placeholder) | Optional | `+91XXXXXXXXXX` | [`AdminBootstrapRunner.java`](src/main/java/com/safewalk/config/AdminBootstrapRunner.java) |
 | `UPLOAD_DIR` | Base directory for uploaded documents and avatars | No | `./uploads` (Docker: `/app/uploads`) | [`application.yml`](src/main/resources/application.yml) |
 | `SERVER_PORT` | HTTP port application binds to | No | `8080` | [`application.yml`](src/main/resources/application.yml) |
+
+> [!NOTE]
+> **Admin Bootstrap Security**: Admin bootstrap is strictly disabled by default (`ADMIN_BOOTSTRAP_ENABLED=false`). Public self-registration for `ROLE_ADMIN` is rejected at the API controller layer. Initial administrator provisioning executes only when an operator explicitly sets `ADMIN_BOOTSTRAP_ENABLED=true` and supplies a non-empty `ADMIN_BOOTSTRAP_PASSWORD` ($\ge 8$ characters). If disabled or if the password is omitted, `AdminBootstrapRunner` aborts safely without altering database state.
 
 ---
 
@@ -950,9 +954,9 @@ The table below documents the verified hosting provider and configuration path f
 | **Backend REST API** | **Railway** | Multi-stage Docker container deployed on Railway PaaS. Reverse-proxied via `railway-hikari` edge proxy terminating TLS/HTTPS and routing traffic to container port `8080`. | **Verified**<br/>• Production base URL provided by project owner<br/>• Edge response headers observed: `Server: railway-hikari`, `x-railway-edge: sin1`<br/>• HTTP 200 confirmed on `/api/v1/health` |
 | **MySQL Database** | **Managed Cloud MySQL / Railway Plugin** *(Provider not verified from repo metadata)* | Injected via `DB_HOST` / `MYSQLHOST`, `DB_PORT` / `MYSQLPORT` (default `3306`), `DB_NAME` / `MYSQLDATABASE`, `DB_USERNAME` / `MYSQLUSER`, `DB_PASSWORD` / `MYSQLPASSWORD`. JDBC URL: `jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC`. | **Configuration Verified**<br/>• Variable schemas confirmed in `application.yml` and `.env.example`<br/>• Connection initialized during boot via HikariCP<br/>• *Hosting provider location not verified from repo code alone* |
 | **Redis Cache & Geospatial** | **Managed Cloud Redis / Railway Plugin** *(Provider not verified from repo metadata)* | Injected via `REDIS_HOST` (default `localhost`), `REDIS_PORT` (default `6379`), and `REDIS_PASSWORD` / `REDISPASSWORD`. Lettuce client configured in `RedisConfig.java` with 2000ms connect/command timeouts. | **Verified Live**<br/>• Configuration confirmed in `application.yml`<br/>• Live diagnostic probe on `/api/v1/redis/health` returned HTTP 200 with write/read/TTL/delete test passing (`status: UP`)<br/>• *Specific cloud provider not verified from repo code alone* |
-| **Apache Kafka Pipeline** | **Aiven Cloud Kafka** *(Managed Apache Kafka Cluster)* | Injected via `KAFKA_BOOTSTRAP_SERVERS` (`kafka-1aac7002-gauravto312-f84c.h.aivencloud.com:11859`), `KAFKA_SECURITY_PROTOCOL=SASL_SSL`, `KAFKA_SASL_MECHANISM=SCRAM-SHA-256`, `KAFKA_SASL_JAAS_CONFIG`, and `KAFKA_SSL_TRUSTSTORE_CERTIFICATES` (PEM format). Local Docker fallback uses `PLAINTEXT://kafka:29092`. | **Configuration Verified**<br/>• Broker parameters confirmed in `application.yml` and `.env.example`<br/>• Event producer/consumer classes verified in codebase<br/>• *Runtime broker connectivity unverified via public probe* |
+| **Apache Kafka Pipeline** | **Managed Cloud Kafka / Aiven** *(Managed Apache Kafka Cluster)* | Injected via `KAFKA_BOOTSTRAP_SERVERS` (`YOUR_KAFKA_BOOTSTRAP_SERVERS`, e.g. `your-kafka-broker.example.com:9092` or cloud host:port), `KAFKA_SECURITY_PROTOCOL=SASL_SSL`, `KAFKA_SASL_MECHANISM=SCRAM-SHA-256`, `KAFKA_SASL_JAAS_CONFIG`, and `KAFKA_SSL_TRUSTSTORE_CERTIFICATES` (PEM format). Local Docker fallback uses `PLAINTEXT://kafka:29092`. | **Configuration Verified**<br/>• Broker parameters confirmed in `application.yml` and `.env.example`<br/>• Event producer/consumer classes verified in codebase<br/>• *Runtime broker connectivity unverified via public probe* |
 | **Firebase Cloud Messaging (FCM)** | **Google Cloud Platform (Firebase Admin SDK 9.3.0)** | In-memory service-account injection via `FIREBASE_CREDENTIALS_JSON` environment variable (Railway production); local development fallback via `GOOGLE_APPLICATION_CREDENTIALS` file mount (`/app/firebase-service-account.json`). | **Implementation Verified**<br/>• In-memory JSON parsing logic verified in `FirebaseConfig.java`<br/>• 17 unit tests passing in `FirebaseConfigTest`<br/>• *Live push delivery to mobile hardware unverified via public probe* |
-| **Frontend Web Dashboard** | **Vercel** | Single-page React/Vite dashboard deployed at `https://safewalk-frontend-beta.vercel.app/`. Configured as an allowed CORS origin in `CorsConfig.java` and `application.yml`. | **Deployment Verified**<br/>• Deployed Vercel URL verified live (HTTP 200 with `Server: Vercel`, `X-Vercel-Id`)<br/>• Backend CORS allowlist confirmed<br/>• *Source repository URL unconfirmed in local metadata (`[Frontend repository URL — to be added]` retained)* |
+| **Frontend Web Dashboard** | **Vercel** | Single-page React/Vite dashboard deployed at `https://safewalk-frontend-beta.vercel.app/`. Configured as an allowed CORS origin in `CorsConfig.java` and `application.yml`. | **Deployment Verified**<br/>• Deployed Vercel URL verified live (HTTP 200 with `Server: Vercel`, `X-Vercel-Id`)<br/>• Backend CORS allowlist confirmed<br/>• Source repository: [gauravto312-wq/safewalk-frontend](https://github.com/gauravto312-wq/safewalk-frontend) |
 | **Android Mobile Application** | **GitHub Releases** | Native Android client (Kotlin + Jetpack Compose) distributed via GitHub Releases tag `v1.0.0` with installable APK asset (`SafeWalk-v1.0.0.apk`). Configured to target Railway backend REST and WSS endpoints. | **Verified**<br/>• Client repository verified: `gauravto312-wq/SafeWalk-Android`<br/>• Release tag and direct APK download verified |
 
 ---
@@ -1118,6 +1122,9 @@ The server returns an HTTP 401 Unauthorized response:
 ```
 - **Diagnostic Result**: Redis connectivity, password authentication, key write/read operations, TTL scheduling, and deletion routines verified live (`status: UP`, `writeReadSuccess: true`).
 
+> [!NOTE]
+> **Operational Diagnostic Note**: `GET /api/v1/redis/health` executes a transient write-read-delete cycle with a 60-second TTL for active verification of Redis connectivity and command execution. While it does not accept external input or expose stored application data, exposing an active write diagnostic as `permitAll` without rate limiting could allow abusive traffic to generate unnecessary Redis roundtrips. For high-traffic or public production deployments, passive liveness should be monitored via `GET /api/v1/health`, with active diagnostic endpoints protected behind administrative authorization (`hasRole('ADMIN')`) or rate-limited via an upstream reverse proxy.
+
 #### 4. Component Verification Status Matrix
 
 In strict accordance with production auditing protocols, system components are categorized by their exact verification level:
@@ -1177,6 +1184,7 @@ mvn test -DforkCount=2
 - **IDOR Prevention on Files**: Verification document downloads enforce ownership verification: only the uploading user or users with `ROLE_ADMIN` can retrieve files.
 - **Stateless Authorization**: All API requests are stateless and authenticated per-request via cryptographically signed JWT tokens.
 - **Database Least Privilege**: In production environments, database connections should utilize restricted-privilege database users rather than the MySQL `root` administrative superuser.
+- **Diagnostic Endpoint Protection**: Baseline liveness (`GET /api/v1/health`) is unauthenticated and non-destructive. Active diagnostic endpoints (`GET /api/v1/redis/health`) perform internal write/delete cycles; in public production deployments without gateway rate-limiting, restricting diagnostic routes to administrators is recommended to prevent connection pool exhaustion.
 
 ---
 
